@@ -1,6 +1,6 @@
 use std::{error::Error, str::from_utf8, sync::Arc, time::Duration};
 
-use keri::{database::lmdb::LmdbEventDatabase, keri::Keri, signer::CryptoBox};
+use keri::{database::lmdb::LmdbEventDatabase, keri::Keri, prefix::Prefix, signer::CryptoBox};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
@@ -13,26 +13,43 @@ pub async fn send(
     address: &str,
     keri_instance: &Keri<LmdbEventDatabase, CryptoBox>,
 ) -> Result<Vec<u8>, Box<dyn Error>> {
+    let prefix = keri_instance.get_state().unwrap().unwrap().prefix;
     let mut stream = TcpStream::connect(address.clone()).await?;
     stream.write(message).await?;
-    println!("Sent:\n{}\n", from_utf8(message).unwrap());
+    println!(
+        "{} sent:\n{}\n",
+        prefix.to_str(),
+        from_utf8(message).unwrap()
+    );
     let mut buf = [0; 1024];
     stream.readable().await?;
     let n = stream.try_read(&mut buf)?;
-    println!("Got:\n{}\n", from_utf8(&buf[..n]).unwrap());
+    println!(
+        "{} received:\n{}\n",
+        prefix.to_str(),
+        from_utf8(&buf[..n]).unwrap()
+    );
 
     let res = keri_instance.respond(&buf[..n])?;
 
     if res.len() != 0 {
         stream.write(&res).await?;
-        println!("Sent: {}", String::from_utf8(res.clone()).unwrap());
+        println!(
+            "{} sent: \n{}\n",
+            prefix.to_str(),
+            String::from_utf8(res.clone()).unwrap()
+        );
 
         let n = match timeout(Duration::from_millis(200), stream.read(&mut buf)).await {
             Ok(n) => n?,
             Err(_) => 0,
         };
 
-        println!("Got:\n{}\n", from_utf8(&buf[..n]).unwrap());
+        println!(
+            "{} received:\n{}\n",
+            prefix.to_str(),
+            from_utf8(&buf[..n]).unwrap()
+        );
     }
 
     Ok(buf[..n].to_vec())
@@ -42,10 +59,11 @@ pub async fn run(
     address: &str,
     keri_instance: Keri<LmdbEventDatabase, CryptoBox>,
 ) -> Result<(), Box<dyn Error>> {
+    let prefix = keri_instance.get_state().unwrap().unwrap().prefix;
     let keri_instance = Arc::new(Mutex::new(keri_instance));
 
     let listener = TcpListener::bind(&address.to_string()).await?;
-    println!("Listening on: {}", address);
+    println!("{} listening on {}", prefix.to_str(), address);
 
     loop {
         let (mut socket, _) = listener.accept().await?;
@@ -61,19 +79,22 @@ pub async fn run(
 
                 if n != 0 {
                     let msg = &buf[..n];
-                    println!("Got: \n {}\n", String::from_utf8(msg.to_vec()).unwrap());
-                    let receipt = keri
-                        .lock()
-                        .await
-                        .respond(msg)
-                        .expect("failed while event processing");
+                    let keri = keri.lock().await;
+                    let prefix = keri.get_state().unwrap().unwrap().prefix.to_str();
+                    println!(
+                        "{} received: \n{}\n",
+                        prefix,
+                        String::from_utf8(msg.to_vec()).unwrap()
+                    );
+                    let receipt = keri.respond(msg).expect("failed while event processing");
 
                     socket
                         .write_all(&receipt)
                         .await
                         .expect("failed to write data to socket");
                     println!(
-                        "Respond with {}\n",
+                        "{} sent \n{}\n",
+                        prefix,
                         String::from_utf8(receipt.clone()).unwrap()
                     );
                 }

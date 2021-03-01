@@ -8,7 +8,7 @@ use tempfile::tempdir;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     // Parse command line arguments.
-    let matches = clapapp::new("get-command-line-args")
+    let matches = clapapp::new("keriox demo")
         .arg(
             Arg::with_name("host")
                 .short('H'.to_string())
@@ -25,6 +25,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
             Arg::with_name("bob")
                 .short('B'.to_string())
                 .help("run bob demo")
+                .takes_value(false),
+        )
+        .arg(
+            Arg::with_name("eve")
+                .short('E'.to_string())
+                .help("run eve demo")
                 .takes_value(false),
         )
         .arg(
